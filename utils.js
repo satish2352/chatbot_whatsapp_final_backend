@@ -3,17 +3,19 @@ const { default: makeWASocket, DisconnectReason } = require("@whiskeysockets/bai
 const { MongoClient } = require("mongodb");
 const useMongoDBAuthState = require('./mongoAuthState')
 
-let sock;
-
-module.exports = async function connectToWhatsApp(ws) {
+async function connectDB(){
     const mongoClient = new MongoClient(process.env.MONGO_URI);
     await mongoClient.connect();
-    const collection = mongoClient
+    const db = mongoClient
         .db("test")
-        .collection("auth_info_baileys");
+    return db
+}
 
-    const { state, saveCreds, removeData } = await useMongoDBAuthState(collection)
-    sock = makeWASocket({
+async function connectToWhatsApp(ws) {
+    const db = await connectDB()
+
+    const { state, saveCreds, removeData } = await useMongoDBAuthState(db.collection("auth_info_baileys"))
+    const sock = makeWASocket({
         auth: state,
         printQRInTerminal: true
     })
@@ -28,7 +30,6 @@ module.exports = async function connectToWhatsApp(ws) {
             const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut
             console.log('reconnecting ', shouldReconnect)
 
-            console.log("State Cred",state.creds)
             if (shouldReconnect) {
                 connectToWhatsApp(ws)
             }else{
@@ -37,19 +38,26 @@ module.exports = async function connectToWhatsApp(ws) {
             }
         } else if (connection === 'open') {
             ws.send("Connection Made")
+            console.log("State", state.creds.me.id)
         } else if (connection == "connecting") {
             ws.send("Connecting...")
         }
     })
-    sock.ev.on('messages.upsert', m => {
-        console.log(m.messages)
+    // sock.ev.on('messages.upsert', m => {
+    //     console.log(m.messages)
 
-        // console.log('replying to', m.messages[0].key.remoteJid)
-        // await sock.sendMessage(m.messages[0].key.remoteJid!, { text: 'Hello there!' })
-    })
+    //     // console.log('replying to', m.messages[0].key.remoteJid)
+    //     // await sock.sendMessage(m.messages[0].key.remoteJid!, { text: 'Hello there!' })
+    // })
     sock.ev.on('creds.update', saveCreds)
-    console.log("Trying", sock.authState.creds.registered)
 }
 
+async function saveFlow({author, name, nodes, edges, data}){
+    const db = await connectDB()
+    const collection = db.collection('flows')
+    const flow = await collection.findOneAndUpdate({author}, {$set:{author, name, nodes, edges, data}}, {upsert:true})
+    return flow._id
+}
 
+module.exports = {connectToWhatsApp, saveFlow}
 

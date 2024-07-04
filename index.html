@@ -8,9 +8,9 @@
 <body>
     <button onclick={connect()}>connect</button>
     <script>
-        const s = new WebSocket('ws://localhost:3002')
+        const s = new WebSocket('ws://localhost:3001')
         function connect(){
-            s.send('/connect')
+            s.send('/saveFlow')
         }
         s.onmessage = function(message){
             console.log(message.data)
