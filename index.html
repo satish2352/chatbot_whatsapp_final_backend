@@ -10,7 +10,7 @@
     <script>
         const s = new WebSocket('ws://localhost:3001')
         function connect(){
-            s.send('/saveFlow')
+            s.send('/connect')
         }
         s.onmessage = function(message){
             console.log(message.data)

@@ -1,63 +1,69 @@
-require('dotenv').config()
+require('dotenv').config();
 const { default: makeWASocket, DisconnectReason } = require("@whiskeysockets/baileys");
-const { MongoClient } = require("mongodb");
-const useMongoDBAuthState = require('./mongoAuthState')
+const { MongoClient, ObjectId } = require("mongodb");
+const useMongoDBAuthState = require('./mongoAuthState');
 
-async function connectDB(){
+async function connectDB(collectionName) {
     const mongoClient = new MongoClient(process.env.MONGO_URI);
     await mongoClient.connect();
-    const db = mongoClient
-        .db("test")
-    return db
+    const collection = mongoClient.db("test").collection(collectionName);
+    return collection;
 }
 
 async function connectToWhatsApp(ws) {
-    const db = await connectDB()
-
-    const { state, saveCreds, removeData } = await useMongoDBAuthState(db.collection("auth_info_baileys"))
+    const collection = await connectDB("auth_info_baileys");
+    const { state, saveCreds, removeData } = await useMongoDBAuthState(collection);
     const sock = makeWASocket({
         auth: state,
         printQRInTerminal: true
-    })
-    sock.ev.on('connection.update', (update) => {
-        const { connection, lastDisconnect } = update
+    });
+
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect } = update;
 
         if (update.qr) {
-            ws.send("qr:" + update.qr)
+            ws.send("qr:" + update.qr);
         }
 
         if (connection === 'close') {
-            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut
-            console.log('reconnecting ', shouldReconnect)
+            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
 
             if (shouldReconnect) {
-                connectToWhatsApp(ws)
-            }else{
-                removeData(state.creds._id)
-                connectToWhatsApp(ws)
+                connectToWhatsApp(ws);
+            } else {
+                removeData(state.creds._id);
+                connectToWhatsApp(ws);
             }
         } else if (connection === 'open') {
-            ws.send("Connection Made")
-            console.log("State", state.creds.me.id)
-        } else if (connection == "connecting") {
-            ws.send("Connecting...")
+            const id = await getIdByAuthor(state.creds.me.id);
+            ws.send("id:" + id);
+        } else if (connection === 'connecting') {
+            ws.send("Connecting...");
         }
-    })
-    // sock.ev.on('messages.upsert', m => {
-    //     console.log(m.messages)
+    });
 
-    //     // console.log('replying to', m.messages[0].key.remoteJid)
-    //     // await sock.sendMessage(m.messages[0].key.remoteJid!, { text: 'Hello there!' })
-    // })
-    sock.ev.on('creds.update', saveCreds)
+    sock.ev.on('creds.update', saveCreds);
 }
 
-async function saveFlow({author, name, nodes, edges, data}){
-    const db = await connectDB()
-    const collection = db.collection('flows')
-    const flow = await collection.findOneAndUpdate({author}, {$set:{author, name, nodes, edges, data}}, {upsert:true})
-    return flow._id
+async function saveFlow({id, author, name, nodes, edges, data }) {
+    const collection = await connectDB("flows");
+    const flow = await collection.findOneAndUpdate(
+        { _id:id },
+        { $set: { author, name, nodes, edges, data } },
+        { upsert: true }
+    );
+    return flow._id;
 }
 
-module.exports = {connectToWhatsApp, saveFlow}
+async function getFlow({ id }) {
+    const collection = await connectDB("flows");
+    return await collection.findOne({ _id: ObjectId.createFromHexString(id) });
+}
 
+async function getIdByAuthor(author) {
+    const collection = await connectDB("flows");
+    const flow = await collection.findOne({ author });
+    return flow._id;
+}
+
+module.exports = { connectToWhatsApp, saveFlow, getFlow };
